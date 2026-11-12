@@ -16,7 +16,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.9
-      - run: gradle assembleDebug --no-daemon --stacktrace
+      - run: gradle assembleDebug assembleRelease --no-daemon --stacktrace
       - uses: actions/upload-artifact@v4
         with:
           name: AmineHanout-APK
@@ -26,5 +26,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk AmineHanout.apk
+          cp app/build/outputs/apk/release/app-release.apk AmineHanout-small.apk
           gh release delete latest-apk --cleanup-tag --yes || true
-          gh release create latest-apk AmineHanout.apk --target "$GITHUB_SHA" --title "AmineHanout APK" --notes "Direct APK download. Install AmineHanout.apk"
+          gh release create latest-apk AmineHanout-small.apk AmineHanout.apk --target "$GITHUB_SHA" --title "AmineHanout APK" --notes "Direct APK download. Small build: AmineHanout-small.apk. Fallback: AmineHanout.apk"

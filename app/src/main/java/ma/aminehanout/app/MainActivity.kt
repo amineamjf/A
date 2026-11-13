@@ -16,6 +16,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,6 +46,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.math.BigDecimal
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -58,6 +61,7 @@ val Green = Color(0xFF1B8A5A) // payment received / advance
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        loadSettings(this)
         setContent {
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
                 MaterialTheme(colorScheme = lightColorScheme(primary = Brand)) {
@@ -69,7 +73,7 @@ class MainActivity : ComponentActivity() {
 }
 
 fun toast(ctx: Context, s: String) = Toast.makeText(ctx, s, Toast.LENGTH_LONG).show()
-fun shop(ctx: Context): String = ctx.getSharedPreferences("s", 0).getString("shop", "AMINE HANOUT") ?: "AMINE HANOUT"
+fun shop(ctx: Context): String = prefs(ctx).getString("shop", "Amine App") ?: "Amine App"
 
 @Composable
 fun App(ctx: Context) {
@@ -85,7 +89,7 @@ fun App(ctx: Context) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("أمين حانوت", fontWeight = FontWeight.Bold) },
+                title = { Text("Amine App", fontWeight = FontWeight.Bold) },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Brand, titleContentColor = Color.White)
             )
         },
@@ -127,8 +131,8 @@ fun CustomersTab(dao: LedgerDao, onOpen: (Long) -> Unit) {
         item {
             Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(3.dp)) {
                 Row(Modifier.padding(16.dp)) {
-                    Column(Modifier.weight(1f)) { Text("لك عند الزبناء", fontSize = 13.sp, color = Color.Gray); Text(fmt(owed), color = Red, fontWeight = FontWeight.Bold, fontSize = 20.sp) }
-                    Column(Modifier.weight(1f)) { Text("عليك للزبناء", fontSize = 13.sp, color = Color.Gray); Text(fmt(adv), color = Green, fontWeight = FontWeight.Bold, fontSize = 20.sp) }
+                    Column(Modifier.weight(1f)) { Text("لك عند الزبناء", fontSize = 13.sp, color = Color.Gray); Text(fmtP(owed), color = Red, fontWeight = FontWeight.Bold, fontSize = 20.sp); Text(fmtS(owed), fontSize = 12.sp, color = Color.Gray) }
+                    Column(Modifier.weight(1f)) { Text("عليك للزبناء", fontSize = 13.sp, color = Color.Gray); Text(fmtP(adv), color = Green, fontWeight = FontWeight.Bold, fontSize = 20.sp); Text(fmtS(adv), fontSize = 12.sp, color = Color.Gray) }
                 }
             }
         }
@@ -148,7 +152,8 @@ fun CustomersTab(dao: LedgerDao, onOpen: (Long) -> Unit) {
                         Text(day(r.lastDate), fontSize = 12.sp, color = Color.Gray)
                     }
                     Column(horizontalAlignment = Alignment.End) {
-                        Text(fmt(kotlin.math.abs(r.balance)), fontWeight = FontWeight.Bold, color = if (r.balance > 0) Red else if (r.balance < 0) Green else Color.Gray)
+                        Text(fmtP(kotlin.math.abs(r.balance)), fontWeight = FontWeight.Bold, color = if (r.balance > 0) Red else if (r.balance < 0) Green else Color.Gray)
+                        Text(fmtS(kotlin.math.abs(r.balance)), fontSize = 11.sp, color = Color.Gray)
                         Text(if (r.balance > 0) "عليه" else if (r.balance < 0) "له" else "مسدّد", fontSize = 11.sp, color = Color.Gray)
                     }
                 }
@@ -177,29 +182,84 @@ fun CustomerDialog(onDismiss: () -> Unit, onSave: (String, String) -> Unit) {
     )
 }
 
+class ItemRow(name: String = "", amount: String = "") {
+    var name by mutableStateOf(name)
+    var amount by mutableStateOf(amount)
+}
+
+// Entry dialog. For a debt/purchase (isDebt = true) it supports several items in one operation;
+// for a payment it is a single amount, exactly like before.
+// onSave(total, note, items): items is empty for a plain single-amount entry.
 @Composable
-fun EntryDialog(isDebt: Boolean, onDismiss: () -> Unit, onSave: (Long, String) -> Unit) {
-    var amt by remember { mutableStateOf("") }
+fun EntryDialog(ctx: Context, isDebt: Boolean, prevBalance: Long, onDismiss: () -> Unit, onSave: (Long, String, List<Pair<String, Long>>) -> Unit) {
+    val rows = remember { mutableStateListOf(ItemRow()) }
     var note by remember { mutableStateOf("") }
+    var err by remember { mutableStateOf("") }
     val fr = remember { FocusRequester() }
     LaunchedEffect(Unit) { fr.requestFocus() }
+    val total = rows.sumOf { parseAmt(it.amount) ?: 0L }
+    val after = if (isDebt) prevBalance + total else prevBalance - total
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (isDebt) "أعطيت (دين جديد)" else "استلمت (دفعة)", color = if (isDebt) Red else Green) },
+        title = { Text(if (isDebt) "أعطيت (دين / مشتريات جديدة)" else "استلمت (دفعة)", color = if (isDebt) Red else Green) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(amt, { amt = it }, Modifier.fillMaxWidth().focusRequester(fr), singleLine = true, label = { Text("المبلغ (DH)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("العملة:", fontSize = 13.sp, color = Color.Gray)
+                    FilterChip(curRyal, { setCurrency(ctx, true) }, { Text(UNIT_RYAL) })
+                    FilterChip(!curRyal, { setCurrency(ctx, false) }, { Text(UNIT_DH) })
+                }
+                rows.forEachIndexed { i, row ->
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedTextField(row.amount, { row.amount = it; err = "" },
+                            Modifier.weight(if (isDebt) 1f else 2f).let { if (i == 0) it.focusRequester(fr) else it },
+                            singleLine = true, label = { Text("المبلغ (${unitName()})") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                        if (isDebt) {
+                            OutlinedTextField(row.name, { row.name = it }, Modifier.weight(1.2f), singleLine = true, label = { Text("السلعة (اختياري)") })
+                            if (rows.size > 1) IconButton({ rows.removeAt(i) }) { Icon(Icons.Default.Delete, null, tint = Red) }
+                        }
+                    }
+                }
+                if (isDebt) TextButton({ rows.add(ItemRow()) }) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("إضافة عنصر آخر") }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(20, 50, 100).forEach { v ->
-                        AssistChip(onClick = { amt = String.format(Locale.US, "%.2f", ((parseAmount(amt) ?: 0L) + v * 100L) / 100.0) }, label = { Text("+$v") })
+                        AssistChip(onClick = {
+                            val last = rows.last()
+                            val cur = last.amount.trim().replace(',', '.').toBigDecimalOrNull() ?: BigDecimal.ZERO
+                            last.amount = cur.add(BigDecimal(v)).toPlainString(); err = ""
+                        }, label = { Text("+$v") })
                     }
                 }
                 OutlinedTextField(note, { note = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("ملاحظة (اختياري)") })
+                Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(1.dp)) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row { Text(if (isDebt) "مجموع هذه العملية" else "مبلغ الدفعة", Modifier.weight(1f), fontSize = 13.sp); Text(fmt(total), fontWeight = FontWeight.Bold, color = if (isDebt) Red else Green, fontSize = 13.sp) }
+                        Row {
+                            Text(if (after >= 0) "الرصيد بعد العملية" else "رصيد لصالح الزبون", Modifier.weight(1f), fontSize = 13.sp)
+                            Text(fmt(kotlin.math.abs(after)), fontWeight = FontWeight.Bold, fontSize = 13.sp, color = if (after > 0) Red else if (after < 0) Green else Color.Gray)
+                        }
+                    }
+                }
+                if (err.isNotEmpty()) Text(err, color = Red, fontSize = 13.sp)
             }
         },
         confirmButton = {
-            Button({ parseAmount(amt)?.let { onSave(it, note.trim()) } }, colors = ButtonDefaults.buttonColors(containerColor = if (isDebt) Red else Green)) { Text("حفظ") }
+            Button({
+                val list = ArrayList<Pair<String, Long>>()
+                var bad = false
+                rows.forEach { r ->
+                    if (r.amount.isBlank() && r.name.isBlank()) return@forEach
+                    val c = parseAmt(r.amount)
+                    if (c == null) bad = true else list.add(r.name.trim() to c)
+                }
+                if (bad) err = "مبلغ غير صالح، أدخل رقماً أكبر من صفر"
+                else if (list.isEmpty()) err = "أدخل مبلغاً"
+                else {
+                    val plain = !isDebt || (list.size == 1 && list[0].first.isBlank())
+                    onSave(list.sumOf { it.second }, note.trim(), if (plain) emptyList() else list)
+                }
+            }, colors = ButtonDefaults.buttonColors(containerColor = if (isDebt) Red else Green)) { Text("حفظ") }
         },
         dismissButton = { TextButton(onDismiss) { Text("إلغاء") } }
     )
@@ -210,10 +270,14 @@ fun CustomerScreen(ctx: Context, dao: LedgerDao, id: Long, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val cust by remember(id) { dao.customer(id) }.collectAsState(null)
     val txns by remember(id) { dao.txns(id) }.collectAsState(emptyList())
+    val items by remember(id) { dao.itemsOf(id) }.collectAsState(emptyList())
+    val itemsBy = remember(items) { items.groupBy { it.txnId } }
     var entry by remember { mutableStateOf<Boolean?>(null) }
     var delTxn by remember { mutableStateOf<Txn?>(null) }
     var delCust by remember { mutableStateOf(false) }
-    val bal = txns.sumOf { if (it.isDebt) it.amount else -it.amount }
+    val bal = balanceOf(txns)
+    val totalDebts = txns.filter { it.isDebt }.sumOf { it.amount }
+    val totalPays = txns.filter { !it.isDebt }.sumOf { it.amount }
     var run = 0L
     val withRun = txns.map { run += if (it.isDebt) it.amount else -it.amount; it to run }.reversed()
 
@@ -225,7 +289,7 @@ fun CustomerScreen(ctx: Context, dao: LedgerDao, id: Long, onBack: () -> Unit) {
                 actions = {
                     IconButton({
                         val c = cust ?: return@IconButton
-                        val url = "https://wa.me/" + normPhone(c.phone) + "?text=" + Uri.encode(waText(shop(ctx), c.name, txns))
+                        val url = "https://wa.me/" + normPhone(c.phone) + "?text=" + Uri.encode(waText(shop(ctx), c.name, txns, items, curRyal))
                         try { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) { toast(ctx, "تعذر فتح واتساب") }
                     }) { Icon(Icons.Default.Share, null) }
                     IconButton({ delCust = true }) { Icon(Icons.Default.Delete, null) }
@@ -243,9 +307,22 @@ fun CustomerScreen(ctx: Context, dao: LedgerDao, id: Long, onBack: () -> Unit) {
         LazyColumn(Modifier.padding(pad).fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             item {
                 Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(3.dp)) {
-                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (bal > 0) "الرصيد المستحق لك" else if (bal < 0) "رصيد لصالح الزبون" else "الحساب مسدّد", Modifier.weight(1f))
-                        Text(fmt(kotlin.math.abs(bal)), fontWeight = FontWeight.Bold, fontSize = 22.sp, color = if (bal > 0) Red else if (bal < 0) Green else Color.Gray)
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("مجموع المشتريات والديون", Modifier.weight(1f), fontSize = 13.sp)
+                            Text(fmt(totalDebts), color = Red, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("مجموع الدفعات", Modifier.weight(1f), fontSize = 13.sp)
+                            Text(fmt(totalPays), color = Green, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (bal > 0) "الرصيد المتبقي" else if (bal < 0) "رصيد لصالح الزبون" else "الحساب مسدّد", Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(fmtP(kotlin.math.abs(bal)), fontWeight = FontWeight.Bold, fontSize = 22.sp, color = if (bal > 0) Red else if (bal < 0) Green else Color.Gray)
+                                Text(fmtS(kotlin.math.abs(bal)), fontSize = 12.sp, color = Color.Gray)
+                            }
+                        }
                     }
                 }
             }
@@ -263,24 +340,31 @@ fun CustomerScreen(ctx: Context, dao: LedgerDao, id: Long, onBack: () -> Unit) {
                         Column(Modifier.weight(2f)) {
                             Text(day(t.date), fontSize = 13.sp)
                             if (t.note.isNotBlank()) Text(t.note, fontSize = 12.sp, color = Color.Gray)
-                            Text("الرصيد: " + fmt(r), fontSize = 11.sp, color = Color.Gray)
+                            (itemsBy[t.id] ?: emptyList()).forEach { it ->
+                                Text("• " + (if (it.name.isBlank()) "—" else it.name) + ": " + fmtP(it.amount), fontSize = 12.sp, color = Color.Gray)
+                            }
+                            Text("الرصيد: " + fmtP(r), fontSize = 11.sp, color = Color.Gray)
                         }
-                        Text(if (t.isDebt) fmt(t.amount) else "", Modifier.weight(1f), color = Red, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        Text(if (!t.isDebt) fmt(t.amount) else "", Modifier.weight(1f), color = Green, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Column(Modifier.weight(1f)) {
+                            if (t.isDebt) { Text(fmtP(t.amount), color = Red, fontWeight = FontWeight.Bold, fontSize = 13.sp); Text(fmtS(t.amount), color = Color.Gray, fontSize = 10.sp) }
+                        }
+                        Column(Modifier.weight(1f)) {
+                            if (!t.isDebt) { Text(fmtP(t.amount), color = Green, fontWeight = FontWeight.Bold, fontSize = 13.sp); Text(fmtS(t.amount), color = Color.Gray, fontSize = 10.sp) }
+                        }
                     }
                 }
             }
         }
     }
     entry?.let { d ->
-        EntryDialog(d, { entry = null }) { a, n ->
+        EntryDialog(ctx, d, bal, { entry = null }) { a, n, its ->
             entry = null
-            scope.launch { dao.addTxn(Txn(customerId = id, amount = a, isDebt = d, note = n)) }
+            scope.launch { dao.addPurchase(Txn(customerId = id, amount = a, isDebt = d, note = n), its.map { it.first }, its.map { it.second }) }
         }
     }
     delTxn?.let { t ->
         AlertDialog(onDismissRequest = { delTxn = null }, title = { Text("حذف العملية؟") }, text = { Text("${day(t.date)} — ${fmt(t.amount)}") },
-            confirmButton = { TextButton({ delTxn = null; scope.launch { dao.deleteTxn(t.id) } }) { Text("حذف", color = Red) } },
+            confirmButton = { TextButton({ delTxn = null; scope.launch { dao.deleteTxnFull(t.id) } }) { Text("حذف", color = Red) } },
             dismissButton = { TextButton({ delTxn = null }) { Text("إلغاء") } })
     }
     if (delCust) AlertDialog(onDismissRequest = { delCust = false }, title = { Text("حذف الزبون وكل عملياته؟") },
@@ -326,7 +410,7 @@ fun SettingsTab(ctx: Context, dao: LedgerDao) {
     val backup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) scope.launch(Dispatchers.IO) {
             val msg = try {
-                val json = toJson(dao.customersOnce(), dao.txnsOnce())
+                val json = toJson(dao.customersOnce(), dao.txnsOnce(), dao.itemsOnce())
                 ctx.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
                 "تم حفظ النسخة الاحتياطية"
             } catch (e: Exception) { "فشل النسخ الاحتياطي" }
@@ -337,15 +421,21 @@ fun SettingsTab(ctx: Context, dao: LedgerDao) {
         if (uri != null) scope.launch(Dispatchers.IO) {
             val msg = try {
                 val s = ctx.contentResolver.openInputStream(uri)!!.use { String(it.readBytes()) }
-                val (c, t) = fromJson(s)
-                dao.replaceAll(c, t)
-                "تمت الاستعادة: ${c.size} زبون"
+                val b = fromJson(s)
+                dao.replaceAll(b.customers, b.txns, b.items)
+                "تمت الاستعادة: ${b.customers.size} زبون"
             } catch (e: Exception) { "ملف غير صالح" }
             withContext(Dispatchers.Main) { toast(ctx, msg) }
         }
     }
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        OutlinedTextField(name, { name = it; ctx.getSharedPreferences("s", 0).edit().putString("shop", it).apply() }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("اسم المحل (يظهر في رسالة واتساب)") })
+        OutlinedTextField(name, { name = it; prefs(ctx).edit().putString("shop", it).apply() }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("اسم المحل (يظهر في رسالة واتساب)") })
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("عملة الإدخال والعرض:", fontSize = 13.sp)
+            FilterChip(curRyal, { setCurrency(ctx, true) }, { Text("$UNIT_RYAL (الافتراضي)") })
+            FilterChip(!curRyal, { setCurrency(ctx, false) }, { Text(UNIT_DH) })
+        }
+        Text("1 درهم = 20 ريال  ·  1000 ريال = 50 درهماً", fontSize = 12.sp, color = Color.Gray)
         Button({ backup.launch("amine-hanout-" + SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date()) + ".json") }, Modifier.fillMaxWidth().height(50.dp)) { Text("نسخ احتياطي") }
         OutlinedButton({ restore.launch(arrayOf("*/*")) }, Modifier.fillMaxWidth().height(50.dp)) { Text("استعادة من نسخة احتياطية") }
         Text("البيانات محفوظة محلياً على هاتفك بدون إنترنت. احفظ النسخة الاحتياطية في مكان آمن (Drive، واتساب...).", fontSize = 12.sp, color = Color.Gray)

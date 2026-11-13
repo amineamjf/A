@@ -16,6 +16,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.9
+      - name: Unit tests
+        run: gradle testDebugUnitTest --no-daemon --stacktrace
       - run: gradle assembleDebug assembleRelease --no-daemon --stacktrace
       - uses: actions/upload-artifact@v4
         with:
@@ -29,3 +31,16 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk AmineHanout-small.apk
           gh release delete latest-apk --cleanup-tag --yes || true
           gh release create latest-apk AmineHanout-small.apk AmineHanout.apk --target "$GITHUB_SHA" --title "AmineHanout APK" --notes "Direct APK download. Small build: AmineHanout-small.apk. Fallback: AmineHanout.apk"
+      - name: Publish APKs to apk branch
+        continue-on-error: true
+        run: |
+          mkdir -p /tmp/apkout && cp AmineHanout.apk AmineHanout-small.apk /tmp/apkout/
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git checkout -q --orphan apk-tmp
+          git rm -rq --cached . || true
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp /tmp/apkout/* .
+          git add -A
+          git commit -qm "APK build $GITHUB_SHA"
+          git push -f origin apk-tmp:apk

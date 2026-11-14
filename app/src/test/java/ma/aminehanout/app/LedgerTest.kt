@@ -54,8 +54,28 @@ class LedgerTest {
         val c = listOf(Customer(1, "أحمد", "0612345678", 111))
         val t = listOf(Txn(10, 1, 1700, true, "n", 222), Txn(11, 1, 2500, false, "", 333))
         val i = listOf(TxnItem(1, 10, "حليب", 800), TxnItem(2, 10, "", 900))
-        val b = fromJson(toJson(c, t, i))
-        assertEquals(c, b.customers); assertEquals(t, b.txns); assertEquals(i, b.items)
+        val k = listOf(CashEntry(1, true, 4000, "x", 9), CashEntry(2, false, 500, "", 10))
+        val b = fromJson(toJson(c, t, i, k))
+        assertEquals(c, b.customers); assertEquals(t, b.txns); assertEquals(i, b.items); assertEquals(k, b.cash)
+    }
+
+    @Test fun due_date_survives_backup() {
+        val t = listOf(Txn(1, 1, 1000, true, "", 5, 12345L))
+        assertEquals(12345L, fromJson(toJson(emptyList(), t, emptyList())).txns[0].dueDate)
+    }
+
+    @Test fun next_due_uses_oldest_unpaid_debt() {
+        val a = Txn(1, 1, ryal("100"), true, "", 1, 1000L)
+        val b = Txn(2, 1, ryal("100"), true, "", 2, 2000L)
+        assertEquals(1000L, nextDue(listOf(a, b)))                                       // nothing paid
+        assertEquals(2000L, nextDue(listOf(a, b, Txn(3, 1, ryal("100"), false, "", 3)))) // first debt settled
+        assertEquals(2000L, nextDue(listOf(a, b, Txn(3, 1, ryal("150"), false, "", 3)))) // second only partly paid
+        assertEquals(0L, nextDue(listOf(a, b, Txn(3, 1, ryal("200"), false, "", 3))))    // all paid
+        assertEquals(0L, nextDue(listOf(Txn(1, 1, 500, true, "", 1, 0L))))               // debt without due date
+    }
+
+    @Test fun units_follow_language() {
+        assertEquals("1,000 rial (50 DH)", fmtBoth(5000, true, "rial", "DH"))
     }
 
     @Test fun old_backup_format_still_restores() {

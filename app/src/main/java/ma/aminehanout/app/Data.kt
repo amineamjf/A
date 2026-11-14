@@ -30,7 +30,8 @@ data class Txn(
     val amount: Long, // centimes of dirham (1 DH = 100 centimes = 20 ryal, so 1 ryal = 5 centimes)
     val isDebt: Boolean, // true = أعطيت (debt/purchase given), false = استلمت (payment received)
     val note: String = "",
-    val date: Long = System.currentTimeMillis()
+    val date: Long = System.currentTimeMillis(),
+    @ColumnInfo(defaultValue = "0") val dueDate: Long = 0 // payment due date (ms), 0 = none; only used for debts
 )
 
 // One line of a multi-item purchase. Txn.amount is always the sum of its items (when it has any).
@@ -40,6 +41,16 @@ data class TxnItem(
     val txnId: Long,
     val name: String = "",
     val amount: Long // centimes
+)
+
+// Cash sale (isSale = true) or shop expense (false), independent of any customer.
+@Entity
+data class CashEntry(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val isSale: Boolean,
+    val amount: Long, // centimes
+    val note: String = "",
+    val date: Long = System.currentTimeMillis()
 )
 
 data class CustomerRow(val id: Long, val name: String, val phone: String, val balance: Long, val lastDate: Long)
@@ -55,6 +66,14 @@ interface LedgerDao {
     @Query("SELECT * FROM Customer") suspend fun customersOnce(): List<Customer>
     @Query("SELECT * FROM Txn") suspend fun txnsOnce(): List<Txn>
     @Query("SELECT * FROM TxnItem") suspend fun itemsOnce(): List<TxnItem>
+    @Query("SELECT * FROM CashEntry ORDER BY date DESC") fun cash(): Flow<List<CashEntry>>
+    @Query("SELECT * FROM CashEntry") suspend fun cashOnce(): List<CashEntry>
+    @Insert suspend fun addCash(e: CashEntry)
+    @Insert suspend fun addCashList(l: List<CashEntry>)
+    @Query("DELETE FROM CashEntry WHERE id = :id") suspend fun deleteCash(id: Long)
+    @Query("DELETE FROM CashEntry") suspend fun clearCash()
+    @Update suspend fun updateTxn(t: Txn)
+    @Update suspend fun updateCustomer(c: Customer)
     @Insert suspend fun addCustomer(c: Customer): Long
     @Insert suspend fun addTxn(t: Txn): Long
     @Insert suspend fun addItems(l: List<TxnItem>)
@@ -73,9 +92,14 @@ interface LedgerDao {
         if (names.isNotEmpty()) addItems(names.indices.map { TxnItem(txnId = id, name = names[it], amount = amounts[it]) })
     }
     @Transaction suspend fun deleteTxnFull(id: Long) { deleteItemsOfTxn(id); deleteTxn(id) }
+    @Transaction suspend fun restoreTxn(t: Txn, items: List<TxnItem>) { addTxn(t); if (items.isNotEmpty()) addItems(items) }
+    @Transaction suspend fun editTxn(t: Txn, names: List<String>, amounts: List<Long>) {
+        updateTxn(t); deleteItemsOfTxn(t.id)
+        if (names.isNotEmpty()) addItems(names.indices.map { TxnItem(txnId = t.id, name = names[it], amount = amounts[it]) })
+    }
     @Transaction suspend fun deleteCustomer(id: Long) { deleteItemsOfCustomer(id); deleteTxnsOf(id); deleteCustomerRow(id) }
-    @Transaction suspend fun replaceAll(c: List<Customer>, t: List<Txn>, items: List<TxnItem>) {
-        clearItems(); clearTxns(); clearCustomers(); addCustomers(c); addTxns(t); addItems(items)
+    @Transaction suspend fun replaceAll(c: List<Customer>, t: List<Txn>, items: List<TxnItem>, cash: List<CashEntry>) {
+        clearItems(); clearTxns(); clearCustomers(); clearCash(); addCustomers(c); addTxns(t); addItems(items); addCashList(cash)
     }
 }
 
@@ -86,14 +110,22 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
     }
 }
 
-@Database(entities = [Customer::class, Txn::class, TxnItem::class], version = 2, exportSchema = false)
+// v2 -> v3: due date on transactions and the cash journal table. Existing rows are untouched.
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `Txn` ADD COLUMN `dueDate` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("CREATE TABLE IF NOT EXISTS `CashEntry` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `isSale` INTEGER NOT NULL, `amount` INTEGER NOT NULL, `note` TEXT NOT NULL, `date` INTEGER NOT NULL)")
+    }
+}
+
+@Database(entities = [Customer::class, Txn::class, TxnItem::class, CashEntry::class], version = 3, exportSchema = false)
 abstract class AppDb : RoomDatabase() {
     abstract fun dao(): LedgerDao
     companion object {
         @Volatile private var inst: AppDb? = null
         fun get(c: Context): AppDb = inst ?: synchronized(this) {
             inst ?: Room.databaseBuilder(c.applicationContext, AppDb::class.java, "amine_hanout.db")
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build().also { inst = it }
         }
     }
@@ -114,12 +146,13 @@ private fun numStr(v: BigDecimal, decimals: Int): String {
     return DecimalFormat(pattern, DecimalFormatSymbols(Locale.US)).format(v)
 }
 
-fun ryalText(cents: Long): String = numStr(ryalOf(cents), 1) + " " + UNIT_RYAL
-fun dhText(cents: Long): String = numStr(dhOf(cents), 2) + " " + UNIT_DH
+fun ryalText(cents: Long, unit: String = UNIT_RYAL): String = numStr(ryalOf(cents), 1) + " " + unit
+fun dhText(cents: Long, unit: String = UNIT_DH): String = numStr(dhOf(cents), 2) + " " + unit
 
-fun fmtPrimary(cents: Long, ryalFirst: Boolean): String = if (ryalFirst) ryalText(cents) else dhText(cents)
-fun fmtSecondary(cents: Long, ryalFirst: Boolean): String = if (ryalFirst) dhText(cents) else ryalText(cents)
-fun fmtBoth(cents: Long, ryalFirst: Boolean): String = fmtPrimary(cents, ryalFirst) + " (" + fmtSecondary(cents, ryalFirst) + ")"
+fun fmtPrimary(cents: Long, ryalFirst: Boolean, ry: String = UNIT_RYAL, dh: String = UNIT_DH): String = if (ryalFirst) ryalText(cents, ry) else dhText(cents, dh)
+fun fmtSecondary(cents: Long, ryalFirst: Boolean, ry: String = UNIT_RYAL, dh: String = UNIT_DH): String = if (ryalFirst) dhText(cents, dh) else ryalText(cents, ry)
+fun fmtBoth(cents: Long, ryalFirst: Boolean, ry: String = UNIT_RYAL, dh: String = UNIT_DH): String =
+    fmtPrimary(cents, ryalFirst, ry, dh) + " (" + fmtSecondary(cents, ryalFirst, ry, dh) + ")"
 
 fun day(ms: Long): String = SimpleDateFormat("dd/MM/yyyy", Locale.US).format(Date(ms))
 
@@ -147,31 +180,30 @@ fun normPhone(p: String): String {
     return d
 }
 
-fun waText(shop: String, name: String, txns: List<Txn>, items: List<TxnItem> = emptyList(), ryalFirst: Boolean = true): String {
-    val bal = balanceOf(txns)
-    val byTxn = items.groupBy { it.txnId }
-    val sb = StringBuilder("مرحبا $name،\nكشف حسابك لدى $shop:\n\n")
-    txns.takeLast(10).forEach {
-        sb.append("${day(it.date)}  ${if (it.isDebt) "دين" else "دفعة"}  ${fmtBoth(it.amount, ryalFirst)}")
-        if (it.note.isNotBlank()) sb.append("  (${it.note})")
-        sb.append("\n")
-        byTxn[it.id]?.forEach { i -> sb.append("   • ${if (i.name.isBlank()) "—" else i.name}: ${fmtBoth(i.amount, ryalFirst)}\n") }
+// Earliest due date among debts that are still (even partly) unpaid, assuming payments settle the oldest debts first.
+// 0 = none.
+fun nextDue(txns: List<Txn>): Long {
+    var pay = txns.filter { !it.isDebt }.sumOf { it.amount }
+    var best = 0L
+    for (t in txns.filter { it.isDebt }.sortedWith(compareBy({ it.date }, { it.id }))) {
+        if (pay >= t.amount) { pay -= t.amount } else {
+            pay = 0L
+            if (t.dueDate > 0 && (best == 0L || t.dueDate < best)) best = t.dueDate
+        }
     }
-    sb.append("\n")
-    sb.append(if (bal > 0) "المبلغ المتبقي: ${fmtBoth(bal, ryalFirst)}" else "لا يوجد مبلغ مستحق ✅")
-    sb.append("\nشكراً لك 🙏")
-    return sb.toString()
+    return best
 }
 
 // ---------- backup ----------
-data class Backup(val customers: List<Customer>, val txns: List<Txn>, val items: List<TxnItem>)
+data class Backup(val customers: List<Customer>, val txns: List<Txn>, val items: List<TxnItem>, val cash: List<CashEntry> = emptyList())
 
-fun toJson(c: List<Customer>, t: List<Txn>, items: List<TxnItem>): String {
+fun toJson(c: List<Customer>, t: List<Txn>, items: List<TxnItem>, cash: List<CashEntry> = emptyList()): String {
     val o = JSONObject()
-    o.put("version", 2)
+    o.put("version", 3)
     o.put("customers", JSONArray().also { a -> c.forEach { a.put(JSONObject().put("id", it.id).put("name", it.name).put("phone", it.phone).put("createdAt", it.createdAt)) } })
-    o.put("txns", JSONArray().also { a -> t.forEach { a.put(JSONObject().put("id", it.id).put("customerId", it.customerId).put("amount", it.amount).put("isDebt", it.isDebt).put("note", it.note).put("date", it.date)) } })
+    o.put("txns", JSONArray().also { a -> t.forEach { a.put(JSONObject().put("id", it.id).put("customerId", it.customerId).put("amount", it.amount).put("isDebt", it.isDebt).put("note", it.note).put("date", it.date).put("dueDate", it.dueDate)) } })
     o.put("items", JSONArray().also { a -> items.forEach { a.put(JSONObject().put("id", it.id).put("txnId", it.txnId).put("name", it.name).put("amount", it.amount)) } })
+    o.put("cash", JSONArray().also { a -> cash.forEach { a.put(JSONObject().put("id", it.id).put("isSale", it.isSale).put("amount", it.amount).put("note", it.note).put("date", it.date)) } })
     return o.toString()
 }
 
@@ -181,7 +213,9 @@ fun fromJson(s: String): Backup {
     val ca = o.getJSONArray("customers"); val ta = o.getJSONArray("txns")
     val ia = o.optJSONArray("items")
     val c = (0 until ca.length()).map { ca.getJSONObject(it).let { j -> Customer(j.getLong("id"), j.getString("name"), j.optString("phone", ""), j.getLong("createdAt")) } }
-    val t = (0 until ta.length()).map { ta.getJSONObject(it).let { j -> Txn(j.getLong("id"), j.getLong("customerId"), j.getLong("amount"), j.getBoolean("isDebt"), j.optString("note", ""), j.getLong("date")) } }
+    val t = (0 until ta.length()).map { ta.getJSONObject(it).let { j -> Txn(j.getLong("id"), j.getLong("customerId"), j.getLong("amount"), j.getBoolean("isDebt"), j.optString("note", ""), j.getLong("date"), j.optLong("dueDate", 0L)) } }
     val items = if (ia == null) emptyList() else (0 until ia.length()).map { ia.getJSONObject(it).let { j -> TxnItem(j.getLong("id"), j.getLong("txnId"), j.optString("name", ""), j.getLong("amount")) } }
-    return Backup(c, t, items)
+    val ka = o.optJSONArray("cash")
+    val cash = if (ka == null) emptyList() else (0 until ka.length()).map { ka.getJSONObject(it).let { j -> CashEntry(j.getLong("id"), j.getBoolean("isSale"), j.getLong("amount"), j.optString("note", ""), j.getLong("date")) } }
+    return Backup(c, t, items, cash)
 }

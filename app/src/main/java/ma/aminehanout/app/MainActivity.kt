@@ -11,6 +11,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -20,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -30,6 +32,8 @@ import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -42,7 +46,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
@@ -83,9 +89,11 @@ class MainActivity : FragmentActivity() {
                 LocalLayoutDirection provides (if (lang == "fr") LayoutDirection.Ltr else LayoutDirection.Rtl),
                 LocalDensity provides Density(dens.density, dens.fontScale * (fontPref.toFloatOrNull() ?: 1f))
             ) {
-                val scheme = if (dark) darkColorScheme(primary = BrandLight, onPrimary = Color.Black, background = Color(0xFF121212), surface = Color(0xFF1E1E1E))
-                else lightColorScheme(primary = Brand, background = Color(0xFFF3F5F4), surface = Color.White)
-                MaterialTheme(colorScheme = scheme) {
+                val scheme = if (dark) darkColorScheme(primary = BrandLight, onPrimary = Color.Black, background = Color(0xFF0F1412), surface = Color(0xFF1A211E),
+                    outlineVariant = Color(0xFF2E3733), secondaryContainer = Color(0xFF1F4F43), onSecondaryContainer = Color.White)
+                else lightColorScheme(primary = Brand, background = Color(0xFFF1F5F3), surface = Color.White,
+                    outlineVariant = Color(0xFFE1E8E5), secondaryContainer = Color(0xFFD3EEE4), onSecondaryContainer = Color(0xFF064E3B))
+                MaterialTheme(colorScheme = scheme, shapes = AppShapes) {
                     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                         if (locked) LockScreen(this@MainActivity) { locked = false } else App(this@MainActivity)
                     }
@@ -117,8 +125,69 @@ class MainActivity : FragmentActivity() {
     companion object { const val LOCK_AFTER_MS = 20_000L }
 }
 
+val HeroBrush = Brush.linearGradient(listOf(Color(0xFF064E3B), Color(0xFF0B8F6F)))
+val AppShapes = Shapes(small = RoundedCornerShape(12.dp), medium = RoundedCornerShape(16.dp), large = RoundedCornerShape(24.dp), extraLarge = RoundedCornerShape(28.dp))
+
 @Composable
 fun cardColors() = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+
+@Composable
+fun AppCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    Card(modifier, shape = RoundedCornerShape(20.dp), colors = cardColors(), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), content = content)
+}
+
+@Composable
+fun HeroCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    Box(modifier.clip(RoundedCornerShape(26.dp)).background(HeroBrush).padding(20.dp)) { Column(content = content) }
+}
+
+@Composable
+fun StatChip(modifier: Modifier, label: String, value: String) {
+    Box(modifier.clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = .14f)).padding(12.dp)) {
+        Column {
+            Text(label, color = Color.White.copy(alpha = .75f), fontSize = 11.sp)
+            Text(value, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        }
+    }
+}
+
+@Composable
+fun Pill(text: String, color: Color) {
+    Box(Modifier.clip(RoundedCornerShape(50)).background(color.copy(alpha = .16f)).padding(horizontal = 10.dp, vertical = 3.dp)) {
+        Text(text, color = color, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+fun GradientBar(title: String, sub: String? = null) {
+    Box(Modifier.fillMaxWidth().background(HeroBrush).padding(horizontal = 20.dp, vertical = 14.dp)) {
+        Column {
+            Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            if (!sub.isNullOrBlank()) Text(sub, color = Color.White.copy(alpha = .75f), fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+fun QuickAction(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clip(RoundedCornerShape(16.dp)).clickable { onClick() }.padding(8.dp)) {
+        Box(Modifier.size(50.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = .13f)), contentAlignment = Alignment.Center) {
+            Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(label, fontSize = 12.sp)
+    }
+}
+
+@Composable
+fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> Unit) {
+    AppCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(title, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            content()
+        }
+    }
+}
 
 fun avatarColor(name: String): Color {
     val cols = listOf(Color(0xFF0B5D4B), Color(0xFF3F51B5), Color(0xFF8E24AA), Color(0xFFEF6C00), Color(0xFF00838F), Color(0xFF6D4C41))
@@ -154,9 +223,9 @@ fun App(ctx: Context) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(tr("app_name"), fontWeight = FontWeight.Bold) },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Brand, titleContentColor = Color.White)
+            GradientBar(
+                tr(when (tab) { 1 -> "daily"; 2 -> "reports"; 3 -> "settings"; else -> "app_name" }),
+                if (tab == 0) shop(ctx) else null
             )
         },
         bottomBar = {
@@ -168,7 +237,7 @@ fun App(ctx: Context) {
             }
         },
         floatingActionButton = {
-            if (tab == 0) ExtendedFloatingActionButton(onClick = { showAdd = true }, containerColor = Brand, contentColor = Color.White) {
+            if (tab == 0) ExtendedFloatingActionButton(onClick = { showAdd = true }, shape = RoundedCornerShape(20.dp), containerColor = Brand, contentColor = Color.White) {
                 Icon(Icons.Default.Add, null); Spacer(Modifier.width(8.dp)); Text(tr("new_customer"))
             }
         }
@@ -217,18 +286,19 @@ fun CustomersTab(dao: LedgerDao, onAdd: () -> Unit, onOpen: (Long) -> Unit) {
     }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp, 12.dp, 12.dp, 90.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
-            Card(Modifier.fillMaxWidth(), colors = cardColors(), elevation = CardDefaults.cardElevation(3.dp)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row {
-                        Column(Modifier.weight(1f)) { Text(tr("you_get"), fontSize = 13.sp, color = Color.Gray); Text(fmtP(owed), color = Red, fontWeight = FontWeight.Bold, fontSize = 20.sp); Text(fmtS(owed), fontSize = 12.sp, color = Color.Gray) }
-                        Column(Modifier.weight(1f)) { Text(tr("you_owe"), fontSize = 13.sp, color = Color.Gray); Text(fmtP(adv), color = Green, fontWeight = FontWeight.Bold, fontSize = 20.sp); Text(fmtS(adv), fontSize = 12.sp, color = Color.Gray) }
-                    }
-                    if (overdueCount > 0) Text(tr("f_overdue") + ": " + num(overdueCount), color = Red, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            HeroCard(Modifier.fillMaxWidth()) {
+                Text(tr("you_get"), color = Color.White.copy(alpha = .75f), fontSize = 13.sp)
+                Text(fmtP(owed), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 32.sp)
+                Text(fmtS(owed), color = Color.White.copy(alpha = .7f), fontSize = 13.sp)
+                Spacer(Modifier.height(14.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    StatChip(Modifier.weight(1f), tr("you_owe"), fmtP(adv))
+                    StatChip(Modifier.weight(1f), tr("f_overdue"), num(overdueCount))
                 }
             }
         }
         item {
-            OutlinedTextField(q, { q = it }, Modifier.fillMaxWidth(), singleLine = true, placeholder = { Text(tr("search")) }, leadingIcon = { Icon(Icons.Default.Search, null) })
+            OutlinedTextField(q, { q = it }, Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(28.dp), placeholder = { Text(tr("search")) }, leadingIcon = { Icon(Icons.Default.Search, null) })
         }
         item {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -250,10 +320,10 @@ fun CustomersTab(dao: LedgerDao, onAdd: () -> Unit, onOpen: (Long) -> Unit) {
         items(list, key = { it.id }) { r ->
             val over = isOver(r)
             val due = dues[r.id] ?: 0L
-            Card(Modifier.fillMaxWidth().clickable { onOpen(r.id) }, colors = cardColors(), elevation = CardDefaults.cardElevation(1.dp)) {
+            AppCard(Modifier.fillMaxWidth().clickable { onOpen(r.id) }) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(42.dp).clip(CircleShape).background(avatarColor(r.name).copy(alpha = .15f)), contentAlignment = Alignment.Center) {
-                        Text(r.name.take(1), color = avatarColor(r.name), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Box(Modifier.size(46.dp).clip(CircleShape).background(avatarColor(r.name)), contentAlignment = Alignment.Center) {
+                        Text(r.name.take(1), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 19.sp)
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
@@ -262,9 +332,11 @@ fun CustomersTab(dao: LedgerDao, onAdd: () -> Unit, onOpen: (Long) -> Unit) {
                         if (r.balance > 0 && due > 0) Text(if (over) tr("overdue") + " · " + tr("due_on", dayS(due)) else tr("due_on", dayS(due)), fontSize = 11.sp, color = if (over) Red else Color.Gray, fontWeight = if (over) FontWeight.Bold else FontWeight.Normal)
                     }
                     Column(horizontalAlignment = Alignment.End) {
-                        Text(fmtP(kotlin.math.abs(r.balance)), fontWeight = FontWeight.Bold, color = if (r.balance > 0) Red else if (r.balance < 0) Green else Color.Gray)
+                        val bc = if (r.balance > 0) Red else if (r.balance < 0) Green else Color.Gray
+                        Text(fmtP(kotlin.math.abs(r.balance)), fontWeight = FontWeight.Bold, fontSize = 16.sp, color = bc)
                         Text(fmtS(kotlin.math.abs(r.balance)), fontSize = 11.sp, color = Color.Gray)
-                        Text(if (r.balance > 0) tr("owes") else if (r.balance < 0) tr("credit") else tr("settled"), fontSize = 11.sp, color = Color.Gray)
+                        Spacer(Modifier.height(4.dp))
+                        Pill(if (r.balance > 0) tr("owes") else if (r.balance < 0) tr("credit") else tr("settled"), bc)
                     }
                 }
             }
@@ -383,7 +455,7 @@ fun EntryDialog(
                         }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
                     }) { Icon(Icons.Default.DateRange, null); Spacer(Modifier.width(6.dp)); Text(tr("due_pick")) }
                 }
-                Card(Modifier.fillMaxWidth(), colors = cardColors(), elevation = CardDefaults.cardElevation(1.dp)) {
+                AppCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Row { Text(tr(if (isDebt) "this_total" else "pay_amount"), Modifier.weight(1f), fontSize = 13.sp); Text(fmt(total), fontWeight = FontWeight.Bold, color = if (isDebt) Red else Green, fontSize = 13.sp) }
                         Row {
@@ -453,84 +525,82 @@ fun CustomerScreen(ctx: Context, dao: LedgerDao, id: Long, onBack: () -> Unit) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Column { Text(cust?.name ?: "", fontWeight = FontWeight.Bold); if (!cust?.phone.isNullOrBlank()) Text(cust?.phone ?: "", fontSize = 12.sp) } },
-                navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } },
-                actions = {
-                    if (!cust?.phone.isNullOrBlank()) IconButton({
-                        try { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + cust?.phone))) } catch (e: Exception) { toast(ctx, tr("err_generic")) }
-                    }) { Icon(Icons.Default.Call, tr("call")) }
-                    IconButton({ editCust = true }) { Icon(Icons.Default.Edit, tr("edit")) }
-                    Box {
-                        IconButton({ menu = true }) { Icon(Icons.Default.Share, null) }
-                        DropdownMenu(menu, { menu = false }) {
-                            DropdownMenuItem(text = { Text(tr("m_statement")) }, onClick = { menu = false; cust?.let { doStatementWa(ctx, it, txns, items) } })
-                            DropdownMenuItem(text = { Text(tr("m_remind_wa")) }, onClick = { menu = false; cust?.let { doRemind(ctx, it, txns, false) } })
-                            DropdownMenuItem(text = { Text(tr("m_remind_sms")) }, onClick = { menu = false; cust?.let { doRemind(ctx, it, txns, true) } })
-                            DropdownMenuItem(text = { Text(tr("m_pdf")) }, onClick = { menu = false; cust?.let { doPdf(ctx, it, txns, items) } })
-                        }
-                    }
-                    IconButton({ delCust = true }) { Icon(Icons.Default.Delete, null) }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Brand, titleContentColor = Color.White, navigationIconContentColor = Color.White, actionIconContentColor = Color.White)
-            )
+            Row(Modifier.fillMaxWidth().background(HeroBrush).padding(horizontal = 4.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White) }
+                Column(Modifier.weight(1f)) {
+                    Text(cust?.name ?: "", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                    if (!cust?.phone.isNullOrBlank()) Text(cust?.phone ?: "", color = Color.White.copy(alpha = .75f), fontSize = 12.sp)
+                }
+                IconButton({ editCust = true }) { Icon(Icons.Default.Edit, tr("edit"), tint = Color.White) }
+                IconButton({ delCust = true }) { Icon(Icons.Default.Delete, tr("delete"), tint = Color.White) }
+            }
         },
         snackbarHost = { SnackbarHost(snack) },
         bottomBar = {
             Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button({ entry = true }, Modifier.weight(1f).height(52.dp), colors = ButtonDefaults.buttonColors(containerColor = Red)) { Text(tr("gave"), fontSize = 17.sp, color = Color.White) }
-                Button({ entry = false }, Modifier.weight(1f).height(52.dp), colors = ButtonDefaults.buttonColors(containerColor = Green)) { Text(tr("got"), fontSize = 17.sp, color = Color.White) }
+                Button({ entry = true }, Modifier.weight(1f).height(54.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = Red)) { Text(tr("gave"), fontSize = 17.sp, color = Color.White, fontWeight = FontWeight.Bold) }
+                Button({ entry = false }, Modifier.weight(1f).height(54.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = Green)) { Text(tr("got"), fontSize = 17.sp, color = Color.White, fontWeight = FontWeight.Bold) }
             }
         }
     ) { pad ->
         LazyColumn(Modifier.padding(pad).fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             item {
-                Card(Modifier.fillMaxWidth(), colors = cardColors(), elevation = CardDefaults.cardElevation(3.dp)) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(tr("total_debts"), Modifier.weight(1f), fontSize = 13.sp)
-                            Text(fmt(totalDebts), color = Red, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(tr("total_pays"), Modifier.weight(1f), fontSize = 13.sp)
-                            Text(fmt(totalPays), color = Green, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(tr(if (bal > 0) "bal_left" else if (bal < 0) "bal_credit" else "bal_zero"), Modifier.weight(1f), fontWeight = FontWeight.Bold)
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text(fmtP(kotlin.math.abs(bal)), fontWeight = FontWeight.Bold, fontSize = 22.sp, color = if (bal > 0) Red else if (bal < 0) Green else Color.Gray)
-                                Text(fmtS(kotlin.math.abs(bal)), fontSize = 12.sp, color = Color.Gray)
-                            }
-                        }
-                        if (bal > 0 && due > 0) Text((if (due < now) tr("overdue") + " · " else "") + tr("due_on", dayS(due)), color = if (due < now) Red else Color.Gray, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                HeroCard(Modifier.fillMaxWidth()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(tr(if (bal > 0) "bal_left" else if (bal < 0) "bal_credit" else "bal_zero"), Modifier.weight(1f), color = Color.White.copy(alpha = .75f), fontSize = 13.sp)
+                        if (bal != 0L) Pill(tr(if (bal > 0) "owes" else "credit"), if (bal > 0) Color(0xFFFFB4B4) else Color(0xFFB4F0D2))
+                    }
+                    Text(fmtP(kotlin.math.abs(bal)), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 34.sp)
+                    Text(fmtS(kotlin.math.abs(bal)), color = Color.White.copy(alpha = .7f), fontSize = 13.sp)
+                    Spacer(Modifier.height(14.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        StatChip(Modifier.weight(1f), tr("total_debts"), fmtP(totalDebts))
+                        StatChip(Modifier.weight(1f), tr("total_pays"), fmtP(totalPays))
+                    }
+                    if (bal > 0 && due > 0) {
+                        Spacer(Modifier.height(10.dp))
+                        Pill((if (due < now) tr("overdue") + " · " else "") + tr("due_on", dayS(due)), if (due < now) Color(0xFFFFB4B4) else Color.White)
                     }
                 }
             }
             item {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-                    Text(tr("details"), Modifier.weight(2f), fontSize = 12.sp, color = Color.Gray)
-                    Text(tr("gave"), Modifier.weight(1f), fontSize = 12.sp, color = Red)
-                    Text(tr("got"), Modifier.weight(1f), fontSize = 12.sp, color = Green)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    if (!cust?.phone.isNullOrBlank()) QuickAction(Icons.Default.Call, tr("call")) {
+                        try { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + cust?.phone))) } catch (e: Exception) { toast(ctx, tr("err_generic")) }
+                    }
+                    QuickAction(Icons.Default.Notifications, tr("q_remind")) { cust?.let { doRemind(ctx, it, txns, false) } }
+                    QuickAction(Icons.Default.Share, tr("q_pdf")) { cust?.let { doPdf(ctx, it, txns, items) } }
+                    Box {
+                        QuickAction(Icons.Default.MoreVert, tr("q_more")) { menu = true }
+                        DropdownMenu(menu, { menu = false }) {
+                            DropdownMenuItem(text = { Text(tr("m_statement")) }, onClick = { menu = false; cust?.let { doStatementWa(ctx, it, txns, items) } })
+                            DropdownMenuItem(text = { Text(tr("m_remind_sms")) }, onClick = { menu = false; cust?.let { doRemind(ctx, it, txns, true) } })
+                        }
+                    }
                 }
             }
             if (txns.isEmpty()) item { Text(tr("no_txns"), Modifier.padding(24.dp), color = Color.Gray) }
             items(withRun, key = { it.first.id }) { (t, r) ->
-                Card(Modifier.fillMaxWidth().clickable { actTxn = t }, colors = cardColors()) {
-                    Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(2f)) {
-                            Text(dayS(t.date), fontSize = 13.sp)
-                            if (t.note.isNotBlank()) Text(t.note, fontSize = 12.sp, color = Color.Gray)
-                            (itemsBy[t.id] ?: emptyList()).forEach { i ->
-                                Text("• " + (if (i.name.isBlank()) "—" else i.name) + ": " + fmtP(i.amount), fontSize = 12.sp, color = Color.Gray)
+                val c = if (t.isDebt) Red else Green
+                AppCard(Modifier.fillMaxWidth().clickable { actTxn = t }) {
+                    Row(Modifier.height(IntrinsicSize.Min)) {
+                        Box(Modifier.width(5.dp).fillMaxHeight().background(c))
+                        Row(Modifier.weight(1f).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(dayS(t.date), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                if (t.note.isNotBlank()) Text(t.note, fontSize = 12.sp, color = Color.Gray)
+                                (itemsBy[t.id] ?: emptyList()).forEach { i ->
+                                    Text("• " + (if (i.name.isBlank()) "—" else i.name) + ": " + fmtP(i.amount), fontSize = 12.sp, color = Color.Gray)
+                                }
+                                if (t.isDebt && t.dueDate > 0) Text(tr("due_on", dayS(t.dueDate)), fontSize = 11.sp, color = if (t.dueDate < now && bal > 0) Red else Color.Gray)
+                                Text(tr("balance") + ": " + fmtP(r), fontSize = 11.sp, color = Color.Gray)
                             }
-                            if (t.isDebt && t.dueDate > 0) Text(tr("due_on", dayS(t.dueDate)), fontSize = 11.sp, color = if (t.dueDate < now && bal > 0) Red else Color.Gray)
-                            Text(tr("balance") + ": " + fmtP(r), fontSize = 11.sp, color = Color.Gray)
-                        }
-                        Column(Modifier.weight(1f)) {
-                            if (t.isDebt) { Text(fmtP(t.amount), color = Red, fontWeight = FontWeight.Bold, fontSize = 13.sp); Text(fmtS(t.amount), color = Color.Gray, fontSize = 10.sp) }
-                        }
-                        Column(Modifier.weight(1f)) {
-                            if (!t.isDebt) { Text(fmtP(t.amount), color = Green, fontWeight = FontWeight.Bold, fontSize = 13.sp); Text(fmtS(t.amount), color = Color.Gray, fontSize = 10.sp) }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(fmtP(t.amount), color = c, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                Text(fmtS(t.amount), color = Color.Gray, fontSize = 11.sp)
+                                Spacer(Modifier.height(4.dp))
+                                Pill(tr(if (t.isDebt) "gave" else "got"), c)
+                            }
                         }
                     }
                 }
@@ -611,7 +681,7 @@ fun DailyTab(dao: LedgerDao) {
     val recent = all.filter { it.date >= addDays(t0, -6) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
-            Card(Modifier.fillMaxWidth(), colors = cardColors(), elevation = CardDefaults.cardElevation(3.dp)) {
+            AppCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(tr("d_today") + " · " + dayS(t0), fontWeight = FontWeight.Bold)
                     Row { Text(tr("r_cash"), Modifier.weight(1f), fontSize = 13.sp); Text(fmt(sales), color = Green, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
@@ -630,7 +700,7 @@ fun DailyTab(dao: LedgerDao) {
         item { Text(tr("d_recent"), fontWeight = FontWeight.Bold) }
         if (recent.isEmpty()) item { Text(tr("d_none"), color = Color.Gray) }
         items(recent, key = { it.id }) { e ->
-            Card(Modifier.fillMaxWidth().clickable { del = e }, colors = cardColors()) {
+            AppCard(Modifier.fillMaxWidth().clickable { del = e }) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(tr(if (e.isSale) "d_sale_t" else "d_exp_t"), fontSize = 13.sp)
@@ -683,7 +753,7 @@ fun ReportsTab(dao: LedgerDao) {
     val onSurface = MaterialTheme.colorScheme.onSurface
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-            Card(Modifier.fillMaxWidth(), colors = cardColors(), elevation = CardDefaults.cardElevation(3.dp)) {
+            AppCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
                     ReportLine(tr("r_count"), num(rows.size), onSurface)
                     ReportLine(tr("r_given"), fmt(debts), Red)
@@ -695,7 +765,7 @@ fun ReportsTab(dao: LedgerDao) {
         item { PeriodBlock(tr("r_today"), today) }
         item { PeriodBlock(tr("r_month"), month) }
         item {
-            Card(Modifier.fillMaxWidth(), colors = cardColors(), elevation = CardDefaults.cardElevation(3.dp)) {
+            AppCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(tr("r_chart"), fontSize = 12.sp, color = Color.Gray)
                     Row(Modifier.fillMaxWidth().height(120.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Bottom) {
@@ -716,7 +786,7 @@ fun ReportsTab(dao: LedgerDao) {
         item { Text(tr("r_top"), fontWeight = FontWeight.Bold) }
         if (top.isEmpty()) item { Text(tr("r_none"), color = Color.Gray) }
         items(top) { r ->
-            Card(Modifier.fillMaxWidth(), colors = cardColors()) {
+            AppCard(Modifier.fillMaxWidth()) {
                 Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(r.name, Modifier.weight(1f))
                     Column(horizontalAlignment = Alignment.End) { Text(fmtP(r.balance), color = Red, fontWeight = FontWeight.Bold); Text(fmtS(r.balance), color = Color.Gray, fontSize = 11.sp) }
@@ -733,7 +803,7 @@ private fun ReportLine(a: String, b: String, c: Color) {
 
 @Composable
 private fun PeriodBlock(title: String, p: Period) {
-    Card(Modifier.fillMaxWidth(), colors = cardColors(), elevation = CardDefaults.cardElevation(3.dp)) {
+    AppCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Text(title, fontWeight = FontWeight.Bold)
             ReportLine(tr("r_given"), fmt(p.given), Red)
@@ -825,7 +895,7 @@ fun SettingsTab(ctx: Context, dao: LedgerDao) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         OutlinedTextField(name, { name = it; prefs(ctx).edit().putString("shop", it).apply() }, Modifier.fillMaxWidth(), singleLine = true, label = { Text(tr("shop_name")) })
 
-        SectionTitle(tr("sec_look"))
+        SettingsGroup(tr("sec_look")) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(tr("language"), Modifier.width(72.dp), fontSize = 13.sp)
             FilterChip(lang == "ar", { setLang(ctx, "ar") }, { Text("العربية") })
@@ -856,7 +926,8 @@ fun SettingsTab(ctx: Context, dao: LedgerDao) {
         }
         Text(tr("rate_note"), fontSize = 12.sp, color = Color.Gray)
 
-        SectionTitle(tr("sec_security"))
+        }
+        SettingsGroup(tr("sec_security")) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(tr("pin_on"), Modifier.weight(1f))
             Switch(pinOn, { want -> pinDlg = if (want) "set" else "off" })
@@ -866,7 +937,8 @@ fun SettingsTab(ctx: Context, dao: LedgerDao) {
             Switch(bioOn, { v -> bioOn = v; setBio(ctx, v) })
         }
 
-        SectionTitle(tr("sec_backup"))
+        }
+        SettingsGroup(tr("sec_backup")) {
         Button({ backup.launch("amine-app-" + SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date()) + ".json") }, Modifier.fillMaxWidth().height(50.dp)) { Text(tr("backup")) }
         OutlinedButton({ restore.launch(arrayOf("*/*")) }, Modifier.fillMaxWidth().height(50.dp)) { Text(tr("restore")) }
         if (autoUri == null) {
@@ -888,6 +960,7 @@ fun SettingsTab(ctx: Context, dao: LedgerDao) {
             }
         }
         Text(tr("local_note"), fontSize = 12.sp, color = Color.Gray)
+        }
     }
     pinDlg?.let { m ->
         PinDialog(m, ctx) { ok ->

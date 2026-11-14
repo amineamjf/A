@@ -178,5 +178,8 @@ val S: Map<String, Array<String>> = mapOf(
     "pdf_page" to arrayOf("صفحة %d", "Page %d", "صفحة %d"),
     "pdf_gen" to arrayOf("أُنشئ في %s", "Généré le %s", "تصاوب فـ %s"),
     "pdf_err" to arrayOf("تعذر إنشاء PDF", "Impossible de créer le PDF", "ما قدرتش نصاوب PDF"),
-    "call" to arrayOf("اتصال", "Appeler", "عيّط")
+    "call" to arrayOf("اتصال", "Appeler", "عيّط"),
+    "q_remind" to arrayOf("تذكير", "Rappel", "تذكير"),
+    "q_pdf" to arrayOf("PDF", "PDF", "PDF"),
+    "q_more" to arrayOf("المزيد", "Plus", "كثر")
 )
